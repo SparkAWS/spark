@@ -37,10 +37,9 @@ import boto
 from boto.ec2.blockdevicemapping import BlockDeviceMapping, EBSBlockDeviceType
 from boto.ec2.networkinterface import NetworkInterfaceSpecification, NetworkInterfaceCollection
 from boto import ec2
-from boto import vpc
 
 # A URL prefix from which to fetch AMI information
-AMI_PREFIX = "https://raw.github.com/mesos/spark-ec2/v2/ami-list"
+AMI_PREFIX = "https://raw.github.com/SparkAWS/spark-ec2/v3/ami-list"
 
 
 class UsageError(Exception):
@@ -174,7 +173,10 @@ def get_or_make_group(conn, name, vpc_id):
         return group[0]
     else:
         print "Creating security group " + name
-        return conn.create_security_group(name, "Spark EC2 group", vpc_id)
+        security_group = conn.create_security_group(name, "Spark EC2 group", vpc_id)
+        print "waiting for 10 seconds..."
+        time.sleep(10) # allow some time for information to propagate in AWS
+        return security_group
 
 # Create network interfaces
 def create_network_interfaces(subnet_id, security_group):
@@ -518,7 +520,7 @@ def setup_cluster(conn, master_nodes, slave_nodes, opts, deploy_ssh_key):
 
     # NOTE: We should clone the repository before running deploy_files to
     # prevent ec2-variables.sh from being overwritten
-    ssh(master, opts, "rm -rf spark-ec2 && git clone https://github.com/mesos/spark-ec2.git -b v3")
+    ssh(master, opts, "rm -rf spark-ec2 && git clone https://github.com/SparkAWS/spark-ec2.git -b v3")
 
     print "Deploying files to master..."
     deploy_files(conn, "deploy.generic", opts, master_nodes, slave_nodes, modules)
@@ -609,7 +611,7 @@ def get_num_disks(instance_type):
 # the first master instance in the cluster, and we expect the setup
 # script to be run on that instance to copy them to other nodes.
 def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, modules):
-    active_master = master_nodes[0].ip_address
+    active_master = master_nodes[0]
 
     num_disks = get_num_disks(opts.instance_type)
     hdfs_data_dirs = "/mnt/ephemeral-hdfs/data"
@@ -621,8 +623,6 @@ def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, modules):
             mapred_local_dirs += ",/mnt%d/hadoop/mrlocal" % i
             spark_local_dirs += ",/mnt%d/spark" % i
 
-    cluster_url = "%s:7077" % active_master
-
     if "." in opts.spark_version:
         # Pre-built spark & shark deploy
         (spark_v, shark_v) = get_spark_shark_version(opts)
@@ -633,10 +633,9 @@ def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, modules):
         modules = filter(lambda x: x != "shark", modules)
 
     template_vars = {
-        "master_list": '\n'.join([i.ip_address for i in master_nodes]),
-        "active_master": active_master,
-        "slave_list": '\n'.join([i.ip_address for i in slave_nodes]),
-        "cluster_url": cluster_url,
+        "master_list": '\n'.join([i.private_ip_address for i in master_nodes]),
+        "active_master": active_master.private_ip_address,
+        "slave_list": '\n'.join([i.private_ip_address for i in slave_nodes]),
         "hdfs_data_dirs": hdfs_data_dirs,
         "mapred_local_dirs": mapred_local_dirs,
         "spark_local_dirs": spark_local_dirs,
@@ -674,7 +673,7 @@ def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, modules):
         'rsync', '-rv',
         '-e', stringify_command(ssh_command(opts)),
         "%s/" % tmp_dir,
-        "%s@%s:/" % (opts.user, active_master)
+        "%s@%s:/" % (opts.user, active_master.ip_address)
     ]
     subprocess.check_call(command)
     # Remove the temp directory we created above
