@@ -136,6 +136,9 @@ def parse_args():
         "--subnet-id", default=None,
         help="If specified, launch instanced in the given subnet")
     parser.add_option(
+        "--public-dns-name", default=None,
+        help="If specified, this dns name can be used to access Spark UI")
+    parser.add_option(
         "--worker-instances", type="int", default=1,
         help="Number of instances per worker: variable SPARK_WORKER_INSTANCES (default: 1)")
     parser.add_option(
@@ -645,7 +648,8 @@ def deploy_files(conn, root_dir, opts, master_nodes, slave_nodes, modules):
         "shark_version": shark_v,
         "hadoop_major_version": opts.hadoop_major_version,
         "spark_worker_instances": "%d" % opts.worker_instances,
-        "spark_master_opts": opts.master_opts
+        "spark_master_opts": opts.master_opts,
+        "public_dns_name": opts.public_dns_name
     }
 
     # Create a temp directory in which we will place all the files to be
